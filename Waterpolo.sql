@@ -643,39 +643,31 @@ DELIMITER ;
 
 -- INTERESTING QUERIES
 
+# compare leagues and order in descending order of top goal scores, assists, and saves
 SELECT 
-    t.name AS team_name,
-    pos.name AS position_name,
-    CONCAT(per.first_name, ' ', per.last_name) AS player_name,
-    (s.goals_scored + s.assists) AS total_points
+    l.league_name,
+    SUM(s.goals_scored) AS total_goals,
+    SUM(s.assists) AS total_assists,
+    SUM(s.saves) AS total_saves
 FROM 
-    team t
+    water_polo_league l
+JOIN
+	game g ON l.league_name = g.league_name
+JOIN 
+    team_game tg ON g.game_ID = tg.game_ID
+JOIN 
+	team t ON tg.team_name = t.name
 JOIN 
     team_person tp ON t.name = tp.team_name
 JOIN 
     player pl ON tp.email_address = pl.email_address
 JOIN 
-    person per ON tp.email_address = per.email_address
-JOIN 
-    pos ON pl.position_ID = pos.ID
-JOIN 
     stats s ON pl.player_ID = s.player_ID
-WHERE 
-    pos.name = 'Center Forward'
-    AND (s.goals_scored + s.assists) = (
-        SELECT MAX(s2.goals_scored + s2.assists)
-        FROM stats s2
-        JOIN player p2 ON s2.player_ID = p2.player_ID
-        JOIN team_person tp2 ON p2.email_address = tp2.email_address
-        WHERE tp2.team_name = t.name AND p2.position_ID = pl.position_ID
-    )
+GROUP BY 
+    l.league_name
 ORDER BY 
-    team_name, total_points DESC;
+    total_goals DESC, total_assists DESC, total_saves DESC;
 
-
-
-
-    
 # finds and displays in descending order the top coaches (by who coaches the team
 # with the most collective goals)
 SELECT 
