@@ -33,7 +33,8 @@ def coach_menu(connection):
         print("\nCoach Menu:")
         print("1: Display teams")
         print("2: View coach insights")
-        print("3: Disconnect from database and close application")
+        print("3: View league insights")
+        print("4: Disconnect from database and close application")
 
         choice = input("Enter your choice: ")
         if choice == '1':
@@ -43,6 +44,8 @@ def coach_menu(connection):
         elif choice == '2':
             view_coach_insights(connection)
         elif choice == '3':
+            view_league_insights(connection)
+        elif choice == '4':
             print("Disconnecting from database.")
             connection.close()
             print("Application closed.")
@@ -57,7 +60,8 @@ def player_menu(connection):
     while True:
         print("\nPlayer Menu:")
         print("1: Display teams")
-        print("2: Disconnect from database and close application")
+        print("2: View league insights")
+        print("3: Disconnect from database and close application")
 
         choice = input("Enter your choice: ")
         if choice == '1':
@@ -66,12 +70,48 @@ def player_menu(connection):
             view_team_game_record(connection, team_name)
             player_view_team_roster(connection, team_name)
         elif choice == '2':
+            view_league_insights(connection)
+        elif choice == '3':
             print("Disconnecting from database.")
             connection.close()
             print("Application closed.")
             break
         else:
             print("Invalid choice. Please try again.")
+            
+def view_league_insights(connection):
+    '''
+    Displays league-wide insights, including total goals, assists, and saves per league.
+    '''
+    try:
+        with connection.cursor() as cursor:
+            query = """
+                SELECT 
+                    l.league_name,
+                    SUM(s.goals_scored) AS total_goals,
+                    SUM(s.assists) AS total_assists,
+                    SUM(s.saves) AS total_saves
+                FROM water_polo_league AS l
+                LEFT JOIN game g ON l.league_name = g.league_name
+                LEFT JOIN team_game tg ON g.game_ID = tg.game_ID
+                LEFT JOIN team t ON tg.team_name = t.name
+                LEFT JOIN team_person tp ON t.name = tp.team_name
+                LEFT JOIN player p ON tp.email_address = p.email_address
+                LEFT JOIN stats s ON p.player_ID = s.player_ID
+                GROUP BY l.league_name
+                ORDER BY total_goals DESC, total_assists DESC, total_saves DESC;
+            """
+            cursor.execute(query)
+            insights = cursor.fetchall()
+
+            # Display results in a clean format
+            print("\nLeague Insights:")
+            print(f"{'League Name':<20} {'Total Goals':<15} {'Total Assists':<15} {'Total Saves':<15}")
+            print("-" * 60)
+            for row in insights:
+                print(f"{row[0]:<20} {row[1]:<15} {row[2]:<15} {row[3]:<15}")
+    except pymysql.MySQLError as e:
+        print(f"Error retrieving league insights: {e}")
 
 def view_coach_insights(connection):
     '''
@@ -347,27 +387,30 @@ def remove_player_from_team(connection, team_name):
             player_id = input("Enter the Player ID of the player to remove: ").strip()
 
             # Validate the player exists
-            cursor.execute("SELECT player_ID FROM player WHERE player_ID = %s;", (player_id,))
-            if not cursor.fetchone():
+            cursor.execute("SELECT email_address FROM player WHERE player_ID = %s;", (player_id,))
+            result = cursor.fetchone()
+            if not result:
                 print(f"No player found with ID {player_id}.")
                 return
+            email_address = result[0]
 
-            # Remove player from team_person table
+            # Remove player stats
+            cursor.execute("DELETE FROM stats WHERE player_ID = %s;", (player_id,))
+
+            # Remove player from team_person
             cursor.execute("""
                 DELETE FROM team_person 
-                WHERE email_address = (SELECT email_address FROM player WHERE player_ID = %s)
+                WHERE email_address = %s
                 AND team_name = %s;
-            """, (player_id, team_name))
+            """, (email_address, team_name))
 
-            # Optionally remove player and associated person records
+            # Remove the player record
             cursor.execute("DELETE FROM player WHERE player_ID = %s;", (player_id,))
-            cursor.execute("""
-                DELETE FROM person
-                WHERE email_address = (
-                    SELECT email_address FROM player WHERE player_ID = %s
-                );
-            """, (player_id,))
 
+            # Remove the person record
+            cursor.execute("DELETE FROM person WHERE email_address = %s;", (email_address,))
+
+            # Commit all changes
             connection.commit()
             print(f"Player with ID {player_id} removed from {team_name}.")
     except pymysql.MySQLError as e:
